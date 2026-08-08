@@ -1,0 +1,176 @@
+pragma language_version >= 0.23;
+import CompactStandardLibrary;
+
+// ============================================================================
+// HandMadeHub — marketplace for handmade goods with NFT-backed authenticity
+//
+// PUBLIC (on-chain, visible to every observer):
+//   - products: Map<Uint<64>, Product>   the public listing directory
+//       id, title, category, price (tNIGHT), seller pseudonym, status,
+//       and the linked NFT token id (if any). A buyer can browse this map
+//       without revealing who they are.
+//   - nfts:     Map<Uint<64>, Nft>       the public authenticity registry
+//       tokenId, productId, artist pseudonym, the authenticity commitment
+//       (a one-way sha256 image of the secret — never the secret itself),
+//       public certificate text, and the verified flag.
+//   - counters: nextProductId, nextNftId  monotonic id allocators.
+//
+// PRIVATE (circuit witnesses — PROVED to the ledger but NEVER revealed):
+//   - makerSecret:     the artist's 32-byte authenticity secret. Only
+//                      persistentHash(makerSecret) is stored on-chain, so a
+//                      collision of the public image does not leak the secret.
+//   - candidateSecret: a prover's claimed knowledge of that secret, used by
+//                      verifyAuthenticity and purchaseProduct. The circuit
+//                      checks sha256(candidate) == stored commitment and
+//                      reveals only the boolean outcome.
+//   - buyerSecret:     knowledge-of-secret proof when buying NFT-backed items.
+//
+// DISCLOSE POLICY — deliberate and minimal:
+//   - listProduct          discloses title, category, price, seller: a
+//                          marketplace catalogue must be public.
+//   - mintAuthenticityNft  discloses the certificate text and the hash
+//                          commitment; the makerSecret itself is never
+//                          disclosed.
+//   - verifyAuthenticity   discloses only `true` (the outcome), never the
+//                          candidateSecret.
+//   - purchaseProduct      discloses the price being paid, never the secret.
+//
+// An on-chain observer CAN see that an item is listed, its price, its
+// category, that an NFT exists, and that a knowledge-of-secret proof passed.
+// An on-chain observer CANNOT see any secret value, nor the shielded identity
+// of the buyer, nor any private negotiation data.
+// ============================================================================
+
+export enum ProductStatus { Listed, Sold, Withdrawn }
+
+export struct Product {
+    id: Uint<64>,
+    title: Opaque<"string">,
+    category: Opaque<"string">,
+    price: Uint<64>,
+    seller: Opaque<"Uint8Array">,
+    status: ProductStatus,
+    nftTokenId: Maybe<Uint<64>>,
+}
+
+export struct Nft {
+    tokenId: Uint<64>,
+    productId: Uint<64>,
+    artist: Opaque<"Uint8Array">,
+    commitment: Bytes<32>,
+    certificate: Opaque<"string">,
+    verified: Boolean,
+}
+
+export ledger products: Map<Uint<64>, Product>;
+export ledger nfts: Map<Uint<64>, Nft>;
+export ledger nextProductId: Counter;
+export ledger nextNftId: Counter;
+
+witness makerSecret(): Bytes<32>;
+witness candidateSecret(): Bytes<32>;
+witness buyerSecret(): Bytes<32>;
+
+// Create a public listing. Everything needed for the catalogue (title,
+// category, price, seller pseudonym) is deliberately disclosed.
+export circuit listProduct(
+    title: Opaque<"string">,
+    category: Opaque<"string">,
+    price: Uint<64>,
+    seller: Opaque<"Uint8Array">,
+): Uint<64> {
+    assert(price > 0, "Price must be positive");
+    const id = nextProductId.read();
+    nextProductId.increment(1);
+    products.insert(disclose(id), Product {
+        id: id,
+        title: disclose(title),
+        category: disclose(category),
+        price: disclose(price),
+        seller: disclose(seller),
+        status: ProductStatus.Listed,
+        nftTokenId: none<Uint<64>>(),
+    });
+    return disclose(id);
+}
+
+// Mint an authenticity NFT for a listed product. The artist supplies a
+// private makerSecret; only its sha256 commitment is stored on-chain.
+export circuit mintAuthenticityNft(productId: Uint<64>, certificate: Opaque<"string">): Uint<64> {
+    assert(products.member(disclose(productId)), "Product not found");
+    const product = products.lookup(disclose(productId));
+    assert(product.status == ProductStatus.Listed, "Product is not listed");
+    assert(!product.nftTokenId.is_some, "Product already has an NFT");
+    const secret = makerSecret();
+    const commitment = disclose(persistentHash<Bytes<32>>(secret));
+    const tokenId = nextNftId.read();
+    nextNftId.increment(1);
+    nfts.insert(disclose(tokenId), Nft {
+        tokenId: tokenId,
+        productId: disclose(productId),
+        artist: product.seller,
+        commitment: commitment,
+        certificate: disclose(certificate),
+        verified: true,
+    });
+    products.insert(disclose(productId), Product {
+        id: product.id,
+        title: product.title,
+        category: product.category,
+        price: product.price,
+        seller: product.seller,
+        status: ProductStatus.Listed,
+        nftTokenId: some<Uint<64>>(tokenId),
+    });
+    return disclose(tokenId);
+}
+
+// Prove knowledge of the authenticity secret without revealing it.
+// Only the boolean outcome is disclosed.
+export circuit verifyAuthenticity(tokenId: Uint<64>): Boolean {
+    assert(nfts.member(disclose(tokenId)), "NFT not found");
+    const nft = nfts.lookup(disclose(tokenId));
+    const secret = candidateSecret();
+    assert(persistentHash<Bytes<32>>(secret) == nft.commitment, "Secret does not match this NFT");
+    return disclose(true);
+}
+
+// Buy a listed product. The price is disclosed (it must match the listing).
+// If the product carries an NFT, the buyer must prove knowledge of the
+// authenticity secret — that knowledge is never revealed on-chain.
+export circuit purchaseProduct(productId: Uint<64>, price: Uint<64>): [] {
+    assert(products.member(disclose(productId)), "Product not found");
+    const product = products.lookup(disclose(productId));
+    assert(product.status == ProductStatus.Listed, "Product is not for sale");
+    assert(disclose(price) == product.price, "Price does not match the listing");
+    if (disclose(product.nftTokenId.is_some)) {
+        const nft = nfts.lookup(disclose(product.nftTokenId.value));
+        const secret = buyerSecret();
+        assert(persistentHash<Bytes<32>>(secret) == nft.commitment, "Authenticity secret required to buy this item");
+    }
+    products.insert(disclose(productId), Product {
+        id: product.id,
+        title: product.title,
+        category: product.category,
+        price: product.price,
+        seller: product.seller,
+        status: ProductStatus.Sold,
+        nftTokenId: product.nftTokenId,
+    });
+}
+
+// Withdraw a listing from the catalogue.
+export circuit withdrawProduct(productId: Uint<64>): [] {
+    assert(products.member(disclose(productId)), "Product not found");
+    const product = products.lookup(disclose(productId));
+    assert(product.status == ProductStatus.Listed, "Product is not listed");
+    products.insert(disclose(productId), Product {
+        id: product.id,
+        title: product.title,
+        category: product.category,
+        price: product.price,
+        seller: product.seller,
+        status: ProductStatus.Withdrawn,
+        nftTokenId: product.nftTokenId,
+    });
+}

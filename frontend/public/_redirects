@@ -1,0 +1,2 @@
+# SPA fallback — every unknown path serves the app shell (Netlify)
+/*    /index.html   200

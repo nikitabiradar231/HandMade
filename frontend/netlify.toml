@@ -1,0 +1,8 @@
+[build]
+  command = "cd .. && npm ci && npm run compile && cd frontend && npm ci && npm run build"
+  publish = "dist"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
