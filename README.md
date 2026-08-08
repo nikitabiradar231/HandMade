@@ -42,21 +42,6 @@ Runtime	Node.js
 Development Environment	WSL2
 Containerization	Docker
 Version Control	Git & GitHub
-📁 Project Structure
-HandMadeHub/
-│
-├── src/
-│   ├── components/
-│   ├── pages/
-│   ├── contracts/
-│   ├── services/
-│   └── ...
-│
-├── public/
-├── package.json
-├── package-lock.json
-├── README.md
-└── ...
 
 The structure may evolve as the project continues to develop.
 
@@ -152,3 +137,4 @@ Enhanced privacy features
 Production deployment
 
 Mobile-friendly improvements
+
