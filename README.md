@@ -42,34 +42,6 @@ Runtime	Node.js
 Development Environment	WSL2
 Containerization	Docker
 Version Control	Git & GitHub
-🧩 Architecture
-┌──────────────────────────┐
-│          User            │
-│     Buyer / Creator      │
-└────────────┬─────────────┘
-             │
-             ▼
-┌──────────────────────────┐
-│     HandMadeHub UI       │
-│      React + Vite        │
-└────────────┬─────────────┘
-             │
-             ▼
-┌──────────────────────────┐
-│ Blockchain Integration   │
-│      Midnight SDK        │
-└────────────┬─────────────┘
-             │
-             ▼
-┌──────────────────────────┐
-│    Compact Smart         │
-│       Contracts          │
-└────────────┬─────────────┘
-             │
-             ▼
-┌──────────────────────────┐
-│     Midnight Network     │
-└──────────────────────────┘
 📁 Project Structure
 HandMadeHub/
 │
