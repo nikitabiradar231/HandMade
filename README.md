@@ -46,35 +46,7 @@ React-based frontend
 Vite development environment
 Responsive marketplace interface
 Clean artist and artwork presentation
-🏗️ Architecture
-                    ┌─────────────────────┐
-                    │      User           │
-                    │ Artist / Buyer      │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │   React Frontend    │
-                    │       + Vite        │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Midnight Wallet /   │
-                    │ Blockchain Client   │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Compact Smart       │
-                    │ Contract            │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Midnight Network    │
-                    │ Deployment          │
-                    └─────────────────────┘
+
 🛠️ Technology Stack
 Frontend
 React
