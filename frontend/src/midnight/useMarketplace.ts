@@ -237,8 +237,29 @@ export function useMarketplace() {
   const mintNft = useCallback(
     (productIdRaw: string, certificate: string) =>
       runAction('mintNft', 'Minting authenticity NFT…', async () => {
-        if (!deployedRef.current) throw new Error('Not connected.');
-        const productId = BigInt(productIdRaw.trim());
+        if (!deployedRef.current) throw new Error('Not connected to Midnight wallet.');
+        if (!productIdRaw.trim()) throw new Error('Product ID is required.');
+        let productId: bigint;
+        try {
+          productId = BigInt(productIdRaw.trim());
+        } catch {
+          throw new Error('Product ID must be a valid integer.');
+        }
+
+        const matchingProduct = products.find((p) => p.id === productId);
+        if (!matchingProduct) {
+          throw new Error(
+            `Product #${productId} was not found in the catalogue. Please list the product first in Step 1.`,
+          );
+        }
+        if (matchingProduct.nftTokenId.is_some) {
+          throw new Error(
+            `Product #${productId} already has an authenticity NFT (#${matchingProduct.nftTokenId.value}).`,
+          );
+        }
+        if (matchingProduct.status !== 0) {
+          throw new Error(`Product #${productId} is no longer listed for sale.`);
+        }
 
         const secret = randomSecret();
         witnessValuesRef.current.makerSecret = secret;
@@ -248,7 +269,7 @@ export function useMarketplace() {
         saveSecret(tokenId, secret);
         return `Authenticity NFT #${tokenId} minted for product #${productId}. The secret is stored only in this browser.`;
       }),
-    [runAction],
+    [runAction, products],
   );
 
   const verifyNft = useCallback(

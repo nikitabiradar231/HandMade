@@ -95,15 +95,21 @@ export async function buildProviders(connectedApi: ConnectedAPI): Promise<Browse
     fetch.bind(window),
   );
 
-  // Proving is delegated to the connected wallet via its `getProvingProvider`
-  // (connector v4 API); the wallet performs any required IAM/gateway proving
-  // itself. An HTTP proof server is only used when the developer explicitly
-  // configures one (VITE_PROOF_SERVER_URL) — never the wallet's reported
-  // proverServerUri, which may require credentials this DApp owns.
-  const proofServerUrl = import.meta.env.VITE_PROOF_SERVER_URL?.trim() || undefined;
-  const proofProvider = proofServerUrl
-    ? httpClientProofProvider(proofServerUrl, zkConfigProvider)
-    : await dappConnectorProofProvider(connectedApi, zkConfigProvider, CostModel.initialCostModel());
+  // Proving provider: use VITE_PROOF_SERVER_URL if configured, or default to the
+  // local proof server (http://127.0.0.1:6300). If dappConnectorProofProvider is
+  // used, wrap it with a fallback to the local proof server in case 1AM gateway
+  // authentication is unavailable.
+  const proofServerUrl = import.meta.env.VITE_PROOF_SERVER_URL?.trim() || 'http://127.0.0.1:6300';
+  let proofProvider;
+  try {
+    if (import.meta.env.VITE_PROOF_SERVER_URL?.trim()) {
+      proofProvider = httpClientProofProvider(proofServerUrl, zkConfigProvider);
+    } else {
+      proofProvider = await dappConnectorProofProvider(connectedApi, zkConfigProvider, CostModel.initialCostModel());
+    }
+  } catch {
+    proofProvider = httpClientProofProvider('http://127.0.0.1:6300', zkConfigProvider);
+  }
 
   return {
     privateStateProvider: levelPrivateStateProvider({
