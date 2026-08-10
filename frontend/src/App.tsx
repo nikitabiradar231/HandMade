@@ -116,6 +116,7 @@ export default function App() {
                 nfts={nfts}
                 busyAction={busyAction}
                 hasSecret={hasSecret}
+                onRefresh={refresh}
                 onVerify={verifyNft}
                 onDisconnect={disconnect}
               />

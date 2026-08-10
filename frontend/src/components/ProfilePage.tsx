@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
-import { Database, LogOut, User } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Database, LogOut, RefreshCw, ShieldCheck, User } from 'lucide-react';
 import { toHex } from '@midnight-ntwrk/midnight-js-utils';
 
 import type { NftView, ProductView } from '../midnight/useMarketplace';
 import { loadSecret } from '../midnight/secrets';
 import { sameSeller } from '../utils/seller';
+import { getNftImage, getProductImage } from '../utils/productImage';
 
 interface ProfilePageProps {
   address: string;
@@ -14,6 +15,7 @@ interface ProfilePageProps {
   nfts: NftView[];
   busyAction: string | null;
   hasSecret: (tokenId: bigint) => boolean;
+  onRefresh?: () => void;
   onVerify: (tokenIdRaw: string, secretHex?: string) => void;
   onDisconnect: () => void;
 }
@@ -25,36 +27,48 @@ function shortAddress(address: string): string {
 
 interface NftCardProps {
   nft: NftView;
+  productTitle?: string;
   busy: boolean;
   busyAction: string | null;
   hasSecret: (tokenId: bigint) => boolean;
   onVerify: (tokenIdRaw: string, secretHex?: string) => void;
 }
 
-function NftCard({ nft, busy, busyAction, hasSecret, onVerify }: NftCardProps) {
+function NftCard({ nft, productTitle, busy, busyAction, hasSecret, onVerify }: NftCardProps) {
   const storedSecret = hasSecret(nft.tokenId) ? toHex(loadSecret(nft.tokenId)!) : '';
   const [secretValue, setSecretValue] = useState(storedSecret);
+  const nftImage = getNftImage(nft.tokenId) || getProductImage(nft.productId);
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
-      <div className="flex items-start justify-between mb-2">
-        <h4 className="font-semibold text-gray-800">NFT #{nft.tokenId.toString()}</h4>
-        <span
-          className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-            nft.verified ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
-          }`}
-        >
-          {nft.verified ? 'verified' : 'unverified'}
-        </span>
+    <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex flex-col justify-between">
+      <div>
+        {nftImage && (
+          <div className="w-full h-40 mb-3 rounded-lg overflow-hidden bg-gray-100">
+            <img src={nftImage} alt={`NFT #${nft.tokenId}`} className="w-full h-full object-cover" />
+          </div>
+        )}
+        <div className="flex items-start justify-between mb-2">
+          <h4 className="font-semibold text-gray-800">
+            NFT #{nft.tokenId.toString()} {productTitle ? `· ${productTitle}` : ''}
+          </h4>
+          <span
+            className={`text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1 ${
+              nft.verified ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+            }`}
+          >
+            <ShieldCheck size={12} />
+            {nft.verified ? 'verified' : 'unverified'}
+          </span>
+        </div>
+        <p className="text-xs text-gray-500 mb-2">Linked Product #{nft.productId.toString()}</p>
+        <p className="text-sm text-gray-700 italic mb-3 line-clamp-2" title={nft.certificate}>
+          “{nft.certificate}”
+        </p>
       </div>
-      <p className="text-xs text-gray-500 mb-2">for product #{nft.productId.toString()}</p>
-      <p className="text-sm text-gray-700 italic mb-3 line-clamp-2" title={nft.certificate}>
-        “{nft.certificate}”
-      </p>
-      <div className="space-y-2">
+      <div className="space-y-2 mt-2">
         <input
           type="text"
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none text-gray-900"
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-purple-500 outline-none text-gray-900"
           placeholder={storedSecret ? 'Secret stored in this browser' : 'Secret (hex)'}
           value={secretValue}
           onChange={(e) => setSecretValue(e.target.value)}
@@ -79,10 +93,15 @@ export function ProfilePage({
   nfts,
   busyAction,
   hasSecret,
+  onRefresh,
   onVerify,
   onDisconnect,
 }: ProfilePageProps) {
   const busy = busyAction !== null;
+
+  useEffect(() => {
+    onRefresh?.();
+  }, [onRefresh]);
 
   const { myListings, mySold, myNfts } = useMemo(() => {
     let myListings = 0;
@@ -92,9 +111,12 @@ export function ProfilePage({
       if (p.status === 0) myListings += 1;
       if (p.status === 1) mySold += 1;
     }
-    const myNfts = nfts.filter((n) => sameSeller(n.artist, address, networkId));
+    // Include NFTs matching artist address OR containing local browser secret
+    const myNfts = nfts.filter(
+      (n) => sameSeller(n.artist, address, networkId) || hasSecret(n.tokenId),
+    );
     return { myListings, mySold, myNfts };
-  }, [products, nfts, address, networkId]);
+  }, [products, nfts, address, networkId, hasSecret]);
 
   const verifiedCount = useMemo(() => myNfts.filter((n) => n.verified).length, [myNfts]);
 
@@ -175,7 +197,20 @@ export function ProfilePage({
       </div>
 
       <div className="bg-white rounded-xl shadow-md p-6 mb-6">
-        <h3 className="text-lg font-bold text-gray-800 mb-4">Your Authenticity NFTs</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-gray-800">Your Authenticity NFTs</h3>
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              disabled={busy}
+              className="p-2 bg-purple-100 rounded-lg hover:bg-purple-200 transition-colors disabled:opacity-50 flex items-center gap-1.5 text-xs font-semibold text-purple-700"
+              title="Refresh profile NFTs from Midnight ledger"
+            >
+              <RefreshCw size={14} className={busy ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          )}
+        </div>
         {myNfts.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <p className="text-sm">
@@ -185,16 +220,20 @@ export function ProfilePage({
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {myNfts.map((nft) => (
-              <NftCard
-                key={nft.tokenId.toString()}
-                nft={nft}
-                busy={busy}
-                busyAction={busyAction}
-                hasSecret={hasSecret}
-                onVerify={onVerify}
-              />
-            ))}
+            {myNfts.map((nft) => {
+              const matchedProduct = products.find((p) => p.id === nft.productId);
+              return (
+                <NftCard
+                  key={nft.tokenId.toString()}
+                  nft={nft}
+                  productTitle={matchedProduct?.title}
+                  busy={busy}
+                  busyAction={busyAction}
+                  hasSecret={hasSecret}
+                  onVerify={onVerify}
+                />
+              );
+            })}
           </div>
         )}
       </div>
