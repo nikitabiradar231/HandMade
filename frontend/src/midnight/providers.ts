@@ -60,6 +60,8 @@ const OFFICIAL_INDEXERS: Record<string, { http: string; ws: string }> = {
   },
 };
 
+export type ConnectedApiGetter = () => ConnectedAPI;
+
 /**
  * Bridge the DApp Connector wallet (`ConnectedAPI`) to the provider interfaces
  * that midnight-js-contracts expects.
@@ -72,7 +74,13 @@ const OFFICIAL_INDEXERS: Record<string, { http: string; ws: string }> = {
  *              -(deserialize as FinalizedTransaction)>
  *   submitTx : FinalizedTransaction -(serialize)-> hex -> submitTransaction
  */
-export async function buildProviders(connectedApi: ConnectedAPI): Promise<BrowserProviders> {
+export async function buildProviders(
+  connectedApiInput: ConnectedAPI | ConnectedApiGetter,
+): Promise<BrowserProviders> {
+  const getApi: ConnectedApiGetter =
+    typeof connectedApiInput === 'function' ? connectedApiInput : () => connectedApiInput;
+  const connectedApi = getApi();
+
   const config = await connectedApi.getConfiguration();
   setNetworkId(config.networkId);
   const shielded = await connectedApi.getShieldedAddresses();
@@ -125,10 +133,11 @@ export async function buildProviders(connectedApi: ConnectedAPI): Promise<Browse
       getCoinPublicKey: () => shielded.shieldedCoinPublicKey,
       getEncryptionPublicKey: () => shielded.shieldedEncryptionPublicKey,
       async balanceTx(tx: UnboundTransaction): Promise<FinalizedTransaction> {
+        const activeApi = getApi();
         const serialized = toHex(tx.serialize());
         let balanced;
         try {
-          balanced = await connectedApi.balanceUnsealedTransaction(serialized);
+          balanced = await activeApi.balanceUnsealedTransaction(serialized);
         } catch (err: any) {
           const msg = err?.message || String(err);
           if (msg.includes('Wallet UI disconnected') || msg.includes('disconnected')) {
@@ -148,8 +157,9 @@ export async function buildProviders(connectedApi: ConnectedAPI): Promise<Browse
     },
     midnightProvider: {
       async submitTx(tx: FinalizedTransaction): Promise<TransactionId> {
+        const activeApi = getApi();
         try {
-          await connectedApi.submitTransaction(toHex(tx.serialize()));
+          await activeApi.submitTransaction(toHex(tx.serialize()));
         } catch (err: any) {
           const msg = err?.message || String(err);
           if (msg.includes('Wallet UI disconnected') || msg.includes('disconnected')) {

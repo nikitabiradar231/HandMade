@@ -67,6 +67,7 @@ export function useMarketplace() {
   const [status, setStatus] = useState<Status | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
 
+  const connectedApiRef = useRef<ConnectedAPI | null>(null);
   const deployedRef = useRef<any>(null);
   const providersRef = useRef<BrowserProviders | null>(null);
   const contractModuleRef = useRef<any>(null);
@@ -114,10 +115,11 @@ export function useMarketplace() {
   }, []);
 
   const refreshBalance = useCallback(async () => {
-    if (!wallet) return;
+    const api = connectedApiRef.current ?? wallet;
+    if (!api) return;
     try {
-      const unshielded = await wallet.getUnshieldedBalances();
-      const dust = await wallet.getDustBalance();
+      const unshielded = await api.getUnshieldedBalances();
+      const dust = await api.getDustBalance();
       setBalance({ tNight: unshielded[unshieldedToken().raw] ?? 0n, dust: dust.balance });
     } catch {
       // ignore — balances are informational
@@ -128,11 +130,12 @@ export function useMarketplace() {
     setStatus({ kind: 'connecting', title: 'Connecting to your Midnight wallet…' });
     try {
       const connectedApi = await connectWallet(NETWORK_ID);
+      connectedApiRef.current = connectedApi;
       const config = await connectedApi.getConfiguration();
       setSdkNetworkId(config.networkId);
       const { unshieldedAddress } = await connectedApi.getUnshieldedAddress();
 
-      const providers = await buildProviders(connectedApi);
+      const providers = await buildProviders(() => connectedApiRef.current!);
       const contractModule = await loadContractModule();
       const compiledContract = makeCompiledContract(contractModule, witnessValuesRef.current);
 
@@ -162,25 +165,28 @@ export function useMarketplace() {
     api: ConnectedAPI;
     deployed: any;
   }> => {
-    let api = wallet;
+    let api = connectedApiRef.current ?? wallet;
     if (!api) {
       api = await connectWallet(networkId);
+      connectedApiRef.current = api;
       setWallet(api);
-    }
-
-    try {
-      const status = await api.getConnectionStatus();
-      if (status.status !== 'connected') {
+    } else {
+      try {
+        const status = await api.getConnectionStatus();
+        if (status.status !== 'connected') {
+          api = await connectWallet(networkId);
+          connectedApiRef.current = api;
+          setWallet(api);
+        }
+      } catch {
         api = await connectWallet(networkId);
+        connectedApiRef.current = api;
         setWallet(api);
       }
-    } catch {
-      api = await connectWallet(networkId);
-      setWallet(api);
     }
 
     if (!deployedRef.current || !providersRef.current) {
-      const providers = await buildProviders(api);
+      const providers = await buildProviders(() => connectedApiRef.current!);
       const contractModule = await loadContractModule();
       const compiledContract = makeCompiledContract(contractModule, witnessValuesRef.current);
       const deployed = await findDeployedContract(providers as any, {
@@ -214,6 +220,7 @@ export function useMarketplace() {
   }, [wallet, networkId]);
 
   const disconnect = useCallback(() => {
+    connectedApiRef.current = null;
     deployedRef.current = null;
     providersRef.current = null;
     contractModuleRef.current = null;
