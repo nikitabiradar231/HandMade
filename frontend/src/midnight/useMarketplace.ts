@@ -48,6 +48,9 @@ export const PRODUCT_STATUS_LABELS = ['Listed', 'Sold', 'Withdrawn'] as const;
 
 function errorMessage(error: unknown): string {
   const msg = error instanceof Error ? error.message : String(error);
+  if (msg.includes('Wallet DUST state is not ready') || msg.includes('generate more DUST')) {
+    return 'Wallet DUST state is not ready. Please open your Midnight wallet extension (1AM / Lace), wait a few seconds for DUST to sync/generate from your tNIGHT balance, and try again.';
+  }
   if (msg.includes('Wallet UI disconnected') || msg.includes('disconnected')) {
     return 'The Midnight wallet extension popup disconnected or closed during authorization. Please keep your wallet active and approve the transaction prompt.';
   }
@@ -214,6 +217,29 @@ export function useMarketplace() {
         throw err;
       }
       // non-fatal balance read check
+    }
+
+    // Verify DUST balance readiness (attempting a brief wait if wallet is synchronizing DUST)
+    try {
+      let dust = await api.getDustBalance();
+      console.log('[4b] Checking wallet DUST state:', dust);
+      let retries = 0;
+      while (dust.balance === 0n && retries < 5) {
+        console.log('[4b] DUST balance is 0, waiting 2s for wallet DUST sync/generation…');
+        await new Promise((res) => setTimeout(res, 2000));
+        dust = await api.getDustBalance();
+        retries++;
+      }
+      if (dust.balance === 0n) {
+        throw new Error(
+          'Wallet DUST state is not ready (0 DUST). Please open your Midnight wallet extension (1AM / Lace), wait a few seconds for DUST to sync/generate from your tNIGHT balance, and try again.',
+        );
+      }
+      console.log('[4c] Wallet DUST state is ready:', dust);
+    } catch (err: any) {
+      if (err?.message?.includes('DUST state is not ready')) {
+        throw err;
+      }
     }
 
     return { api, deployed: deployedRef.current };

@@ -161,6 +161,11 @@ export async function buildProviders(
         } catch (err: any) {
           console.error('[6 ERROR] balanceUnsealedTransaction failed:', err);
           const msg = err?.message || String(err);
+          if (msg.includes('Wallet DUST state is not ready') || msg.includes('generate more DUST')) {
+            throw new Error(
+              'Wallet DUST state is not ready. Please open your Midnight wallet extension (1AM / Lace), wait a few seconds for DUST to sync/generate from your tNIGHT balance, and try again.',
+            );
+          }
           if (msg.includes('Wallet UI disconnected') || msg.includes('disconnected')) {
             throw new Error(
               'The Midnight wallet extension popup disconnected or was closed during authorization. Please keep your wallet extension open and approve the transaction prompt.',
