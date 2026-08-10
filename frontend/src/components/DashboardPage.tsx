@@ -126,8 +126,14 @@ export function DashboardPage({
                     </p>
                     <p className="text-purple-600 font-bold mb-3">{p.price.toLocaleString()} tNIGHT</p>
                     {p.nftTokenId.is_some && (
-                      <span className="inline-block text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full mb-3">
-                        NFT#{p.nftTokenId.value.toString()} backed
+                      <span
+                        className={`inline-block text-xs px-2 py-0.5 rounded-full mb-3 ${
+                          p.pending
+                            ? 'bg-purple-100 text-purple-700 font-medium animate-pulse'
+                            : 'bg-amber-100 text-amber-700 font-medium'
+                        }`}
+                      >
+                        {p.pending ? 'Minting NFT (Pending confirmation)' : `NFT#${p.nftTokenId.value.toString()} backed`}
                       </span>
                     )}
                   </div>

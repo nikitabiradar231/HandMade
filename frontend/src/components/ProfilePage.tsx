@@ -53,11 +53,15 @@ function NftCard({ nft, productTitle, busy, busyAction, hasSecret, onVerify }: N
           </h4>
           <span
             className={`text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1 ${
-              nft.verified ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+              nft.pending
+                ? 'bg-purple-100 text-purple-700 font-medium animate-pulse'
+                : nft.verified
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : 'bg-amber-100 text-amber-700'
             }`}
           >
             <ShieldCheck size={12} />
-            {nft.verified ? 'verified' : 'unverified'}
+            {nft.pending ? 'Pending confirmation' : nft.verified ? 'verified' : 'unverified'}
           </span>
         </div>
         <p className="text-xs text-gray-500 mb-2">Linked Product #{nft.productId.toString()}</p>

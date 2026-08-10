@@ -18,6 +18,7 @@ import {
 } from './contract';
 import { loadSecret, parseSecretHex, randomSecret, saveSecret } from './secrets';
 import { getDraftImage, saveProductImage, saveNftImage } from '../utils/productImage';
+import { addressToSellerBytes } from '../utils/seller';
 
 export interface ProductView {
   id: bigint;
@@ -27,6 +28,8 @@ export interface ProductView {
   seller: Uint8Array;
   status: number; // 0 Listed | 1 Sold | 2 Withdrawn
   nftTokenId: { is_some: boolean; value: bigint };
+  pending?: boolean;
+  txHash?: string;
 }
 
 export interface NftView {
@@ -36,6 +39,8 @@ export interface NftView {
   commitment: Uint8Array;
   certificate: string;
   verified: boolean;
+  pending?: boolean;
+  txHash?: string;
 }
 
 export type StatusKind =
@@ -116,6 +121,8 @@ export function useMarketplace() {
   const providersRef = useRef<BrowserProviders | null>(null);
   const contractModuleRef = useRef<any>(null);
   const witnessValuesRef = useRef<WitnessValues>(emptyWitnessValues());
+  const addressRef = useRef<string>('');
+  addressRef.current = address;
 
   const resetWitnesses = useCallback(() => {
     witnessValuesRef.current = emptyWitnessValues();
@@ -141,7 +148,7 @@ export function useMarketplace() {
         return;
       }
       const ledger = readPublicLedger(contractModuleRef.current, contractState);
-      const parsedProducts = [...ledger.products].map(([id, p]: [bigint, any]) => ({
+      const parsedProducts: ProductView[] = [...ledger.products].map(([id, p]: [bigint, any]) => ({
         id,
         title: p.title,
         category: p.category,
@@ -150,7 +157,7 @@ export function useMarketplace() {
         status: Number(p.status),
         nftTokenId: { is_some: p.nftTokenId.is_some, value: p.nftTokenId.value },
       }));
-      const parsedNfts = [...ledger.nfts].map(([tokenId, nft]: [bigint, any]) => ({
+      const parsedNfts: NftView[] = [...ledger.nfts].map(([tokenId, nft]: [bigint, any]) => ({
         tokenId,
         productId: nft.productId,
         artist: new Uint8Array(nft.artist),
@@ -159,10 +166,58 @@ export function useMarketplace() {
         verified: Boolean(nft.verified),
       }));
 
+      // Synthesize pending transactions into products & nfts view state so Dashboard & Profile show items immediately
+      const pendingRecords = loadPendingTxs();
+      const currentAddress = addressRef.current || address;
+      let sellerBytes = new Uint8Array(0);
+      if (currentAddress) {
+        try {
+          sellerBytes = new Uint8Array(addressToSellerBytes(currentAddress, networkId));
+        } catch {
+          // ignore
+        }
+      }
+
+      for (const pending of pendingRecords) {
+        let pId: bigint;
+        try {
+          pId = BigInt(pending.productId);
+        } catch {
+          continue;
+        }
+        const existsProduct = parsedProducts.some((p) => p.id === pId);
+        if (!existsProduct) {
+          parsedProducts.push({
+            id: pId,
+            title: pending.title,
+            category: pending.category,
+            price: BigInt(pending.price || '0'),
+            seller: sellerBytes,
+            status: 0,
+            nftTokenId: { is_some: true, value: pId },
+            pending: true,
+            txHash: pending.txHash,
+          });
+        }
+        const existsNft = parsedNfts.some((n) => n.productId === pId);
+        if (!existsNft) {
+          parsedNfts.push({
+            tokenId: pId,
+            productId: pId,
+            artist: sellerBytes,
+            commitment: new Uint8Array(32),
+            certificate: pending.certificate || `${pending.title} (Authenticity Proof)`,
+            verified: false,
+            pending: true,
+            txHash: pending.txHash,
+          });
+        }
+      }
+
       console.log('=== PROFILE & MARKETPLACE REFRESH DEBUG ===');
       console.log('Contract Address:', CONTRACT_ADDRESS);
-      console.log('On-chain Products Count:', parsedProducts.length);
-      console.log('On-chain NFTs Count:', parsedNfts.length);
+      console.log('Products Count (including pending):', parsedProducts.length);
+      console.log('NFTs Count (including pending):', parsedNfts.length);
       console.log('On-chain NFTs:', parsedNfts);
 
       setProducts(parsedProducts);
