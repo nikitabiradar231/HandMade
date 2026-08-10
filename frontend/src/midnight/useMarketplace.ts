@@ -595,11 +595,18 @@ export function useMarketplace() {
         // Wait for product listing to be indexed into contract's public products map on-chain
         let isIndexed = false;
         let retries = 0;
-        while (!isIndexed && retries < 30) {
+        const publicIndexer = indexerPublicDataProvider(
+          'https://indexer.preview.midnight.network/api/v4/graphql',
+          'wss://indexer.preview.midnight.network/api/v4/graphql/ws',
+          WebSocket as any,
+        );
+
+        while (!isIndexed && retries < 40) {
           await new Promise((resolve) => setTimeout(resolve, 3000));
           await refresh();
           try {
-            const contractState = await providersRef.current?.publicDataProvider.queryContractState(CONTRACT_ADDRESS);
+            const publicDataProvider = providersRef.current?.publicDataProvider ?? publicIndexer;
+            const contractState = await publicDataProvider.queryContractState(CONTRACT_ADDRESS);
             if (contractState && contractModuleRef.current) {
               const ledger = readPublicLedger(contractModuleRef.current, contractState);
               isIndexed = [...ledger.products].some(([id]: [bigint, any]) => id === productId);
