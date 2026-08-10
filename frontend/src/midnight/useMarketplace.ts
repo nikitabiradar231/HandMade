@@ -1,8 +1,9 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
 import { unshieldedToken } from '@midnight-ntwrk/midnight-js-protocol/ledger';
 import { setNetworkId as setSdkNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
+import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { MidnightBech32m, UnshieldedAddress } from '@midnight-ntwrk/wallet-sdk-address-format';
 
 import { CONTRACT_ADDRESS, NETWORK_ID, connectWallet } from './selectWallet';
@@ -121,41 +122,59 @@ export function useMarketplace() {
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!providersRef.current || !contractModuleRef.current) return;
     try {
-      const contractState =
-        await providersRef.current.publicDataProvider.queryContractState(CONTRACT_ADDRESS);
+      if (!contractModuleRef.current) {
+        contractModuleRef.current = await loadContractModule();
+      }
+      const publicDataProvider =
+        providersRef.current?.publicDataProvider ??
+        indexerPublicDataProvider(
+          'https://indexer.preview.midnight.network/api/v4/graphql',
+          'wss://indexer.preview.midnight.network/api/v4/graphql/ws',
+          WebSocket as any,
+        );
+
+      const contractState = await publicDataProvider.queryContractState(CONTRACT_ADDRESS);
       if (!contractState) {
         setProducts([]);
         setNfts([]);
         return;
       }
       const ledger = readPublicLedger(contractModuleRef.current, contractState);
-      setProducts(
-        [...ledger.products].map(([id, p]: [bigint, any]) => ({
-          id,
-          title: p.title,
-          category: p.category,
-          price: p.price,
-          seller: new Uint8Array(p.seller),
-          status: Number(p.status),
-          nftTokenId: { is_some: p.nftTokenId.is_some, value: p.nftTokenId.value },
-        })),
-      );
-      setNfts(
-        [...ledger.nfts].map(([tokenId, nft]: [bigint, any]) => ({
-          tokenId,
-          productId: nft.productId,
-          artist: new Uint8Array(nft.artist),
-          commitment: new Uint8Array(nft.commitment),
-          certificate: nft.certificate,
-          verified: Boolean(nft.verified),
-        })),
-      );
-    } catch {
-      // The indexer may briefly be unavailable; keep whatever we have.
+      const parsedProducts = [...ledger.products].map(([id, p]: [bigint, any]) => ({
+        id,
+        title: p.title,
+        category: p.category,
+        price: p.price,
+        seller: new Uint8Array(p.seller),
+        status: Number(p.status),
+        nftTokenId: { is_some: p.nftTokenId.is_some, value: p.nftTokenId.value },
+      }));
+      const parsedNfts = [...ledger.nfts].map(([tokenId, nft]: [bigint, any]) => ({
+        tokenId,
+        productId: nft.productId,
+        artist: new Uint8Array(nft.artist),
+        commitment: new Uint8Array(nft.commitment),
+        certificate: nft.certificate,
+        verified: Boolean(nft.verified),
+      }));
+
+      console.log('=== PROFILE & MARKETPLACE REFRESH DEBUG ===');
+      console.log('Contract Address:', CONTRACT_ADDRESS);
+      console.log('On-chain Products Count:', parsedProducts.length);
+      console.log('On-chain NFTs Count:', parsedNfts.length);
+      console.log('On-chain NFTs:', parsedNfts);
+
+      setProducts(parsedProducts);
+      setNfts(parsedNfts);
+    } catch (err) {
+      console.error('[refresh error]', err);
     }
   }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   const refreshBalance = useCallback(async () => {
     const api = connectedApiRef.current ?? wallet;
