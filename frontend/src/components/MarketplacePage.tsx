@@ -4,6 +4,7 @@ import { RefreshCw, ShoppingBag, X, ImagePlus } from 'lucide-react';
 import type { ProductView } from '../midnight/useMarketplace';
 import { PRODUCT_STATUS_LABELS } from '../midnight/useMarketplace';
 import { sameSeller, sellerHexShort } from '../utils/seller';
+import { getProductImage, getNftImage } from '../utils/productImage';
 
 const CATEGORIES = [
   'All',
@@ -68,6 +69,13 @@ export function MarketplacePage({
     [listed, searchTerm, selectedCategory],
   );
 
+  const resolveImage = (product: ProductView): string | null => {
+    return (
+      getProductImage(product.id) ||
+      (product.nftTokenId.is_some ? getNftImage(product.nftTokenId.value) : null)
+    );
+  };
+
   return (
     <div className="p-6 pb-24 max-w-7xl mx-auto">
       <div className="mb-6 flex justify-between items-center">
@@ -113,51 +121,58 @@ export function MarketplacePage({
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {filtered.map((product) => (
-            <div
-              key={productKey(product)}
-              onClick={() => {
-                setPastedSecret('');
-                setSelected(product);
-              }}
-              className="bg-white rounded-xl shadow-md overflow-hidden cursor-pointer hover:shadow-xl transition-shadow flex flex-col"
-            >
-              <div className="w-full h-40 bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center">
-                <div className="w-20 h-20 rounded-full bg-white shadow flex items-center justify-center">
-                  <ShoppingBag className="text-purple-400" size={36} />
-                </div>
-              </div>
-              <div className="p-4 flex flex-col flex-1">
-                <p className="font-semibold text-gray-800 mb-1 truncate">{product.title}</p>
-                <p className="text-xs text-gray-500 mb-2 truncate">
-                  by {sellerHexShort(product.seller)}
-                </p>
-                <div className="mt-auto flex justify-between items-center">
-                  <p className="text-purple-600 font-bold">
-                    {product.price.toLocaleString()}
-                    <span className="text-xs"> tNIGHT</span>
-                  </p>
-                  {!isOwn(product.seller) ? (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setPastedSecret('');
-                        setSelected(product);
-                      }}
-                      className="text-white px-3 py-1 rounded-lg text-xs font-semibold"
-                      style={{ background: 'linear-gradient(to right, rgb(147, 51, 234), rgb(236, 72, 153))' }}
-                    >
-                      Buy
-                    </button>
+          {filtered.map((product) => {
+            const imgUrl = resolveImage(product);
+            return (
+              <div
+                key={productKey(product)}
+                onClick={() => {
+                  setPastedSecret('');
+                  setSelected(product);
+                }}
+                className="bg-white rounded-xl shadow-md overflow-hidden cursor-pointer hover:shadow-xl transition-shadow flex flex-col"
+              >
+                <div className="w-full h-44 bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center overflow-hidden">
+                  {imgUrl ? (
+                    <img src={imgUrl} alt={product.title} className="w-full h-full object-cover" />
                   ) : (
-                    <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
-                      Yours
-                    </span>
+                    <div className="w-20 h-20 rounded-full bg-white shadow flex items-center justify-center">
+                      <ShoppingBag className="text-purple-400" size={36} />
+                    </div>
                   )}
                 </div>
+                <div className="p-4 flex flex-col flex-1">
+                  <p className="font-semibold text-gray-800 mb-1 truncate">{product.title}</p>
+                  <p className="text-xs text-gray-500 mb-2 truncate">
+                    by {sellerHexShort(product.seller)}
+                  </p>
+                  <div className="mt-auto flex justify-between items-center">
+                    <p className="text-purple-600 font-bold">
+                      {product.price.toLocaleString()}
+                      <span className="text-xs"> tNIGHT</span>
+                    </p>
+                    {!isOwn(product.seller) ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPastedSecret('');
+                          setSelected(product);
+                        }}
+                        className="text-white px-3 py-1 rounded-lg text-xs font-semibold"
+                        style={{ background: 'linear-gradient(to right, rgb(147, 51, 234), rgb(236, 72, 153))' }}
+                      >
+                        Buy
+                      </button>
+                    ) : (
+                      <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
+                        Yours
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -183,10 +198,18 @@ export function MarketplacePage({
               </button>
             </div>
 
-            <div className="w-full h-48 bg-gradient-to-br from-purple-100 to-pink-100 rounded-xl mb-4 flex items-center justify-center">
-              <div className="w-24 h-24 rounded-full bg-white shadow flex items-center justify-center">
-                <ImagePlus className="text-purple-300" size={48} />
-              </div>
+            <div className="w-full h-48 bg-gradient-to-br from-purple-100 to-pink-100 rounded-xl mb-4 flex items-center justify-center overflow-hidden">
+              {resolveImage(selected) ? (
+                <img
+                  src={resolveImage(selected)!}
+                  alt={selected.title}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-24 h-24 rounded-full bg-white shadow flex items-center justify-center">
+                  <ImagePlus className="text-purple-300" size={48} />
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2 mb-2 flex-wrap">
