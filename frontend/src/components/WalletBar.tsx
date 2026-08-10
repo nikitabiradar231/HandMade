@@ -9,6 +9,7 @@ interface WalletBarProps {
   busy: boolean;
   onConnect: () => void;
   onDisconnect: () => void;
+  onReauth: () => void;
 }
 
 function shortAddress(address: string): string {
@@ -24,6 +25,7 @@ export function WalletBar({
   busy,
   onConnect,
   onDisconnect,
+  onReauth,
 }: WalletBarProps) {
   if (!connected) {
     return (
@@ -60,6 +62,14 @@ export function WalletBar({
           </p>
         </div>
       </div>
+      <button
+        onClick={onReauth}
+        disabled={busy}
+        className="text-sm font-medium text-purple-600 border border-purple-200 rounded-lg px-3 py-2 hover:bg-purple-50 transition-colors disabled:opacity-50"
+        title="Re-establish the wallet session and resume syncing"
+      >
+        Re-authenticate
+      </button>
       <button
         onClick={onDisconnect}
         className="text-sm font-medium text-gray-500 border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-100 hover:text-gray-700 transition-colors"

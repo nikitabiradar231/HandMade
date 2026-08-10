@@ -25,6 +25,7 @@ export default function App() {
     busyAction,
     connect,
     disconnect,
+    reauthenticate,
     refresh,
     listProduct,
     mintNft,
@@ -62,6 +63,7 @@ export default function App() {
               busy={busyAction !== null}
               onConnect={connect}
               onDisconnect={disconnect}
+              onReauth={reauthenticate}
             />
           </div>
         </header>

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
 import { unshieldedToken } from '@midnight-ntwrk/midnight-js-protocol/ledger';
+import { setNetworkId as setSdkNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 import { MidnightBech32m, UnshieldedAddress } from '@midnight-ntwrk/wallet-sdk-address-format';
 
@@ -52,7 +53,7 @@ function errorMessage(error: unknown): string {
 export function useMarketplace() {
   const [wallet, setWallet] = useState<ConnectedAPI | null>(null);
   const [address, setAddress] = useState<string>('');
-  const [networkId, setNetworkId] = useState<string>(NETWORK_ID);
+  const [networkId, setConnectedNetworkId] = useState<string>(NETWORK_ID);
   const [balance, setBalance] = useState<{ tNight: bigint; dust: bigint } | null>(null);
   const [products, setProducts] = useState<ProductView[]>([]);
   const [nfts, setNfts] = useState<NftView[]>([]);
@@ -121,6 +122,7 @@ export function useMarketplace() {
     try {
       const connectedApi = await connectWallet(NETWORK_ID);
       const config = await connectedApi.getConfiguration();
+      setSdkNetworkId(config.networkId);
       const { unshieldedAddress } = await connectedApi.getUnshieldedAddress();
 
       const providers = await buildProviders(connectedApi);
@@ -139,7 +141,7 @@ export function useMarketplace() {
       contractModuleRef.current = contractModule;
       setWallet(connectedApi);
       setAddress(unshieldedAddress);
-      setNetworkId(config.networkId);
+      setConnectedNetworkId(config.networkId);
       setStatus(null);
 
       await refresh();
@@ -162,6 +164,17 @@ export function useMarketplace() {
     setStatus(null);
     setBusyAction(null);
   }, [resetWitnesses]);
+
+  /**
+   * Re-establish the wallet session and resume sync. Re-runs the same connect
+   * flow (the connector re-resolves the session with the extension) and then
+   * refreshes ledger state and balances. Never touches stored private state:
+   * private state and signing keys live in the extension / browser storage and
+   * are intentionally left intact.
+   */
+  const reauthenticate = useCallback(async () => {
+    await connect();
+  }, [connect]);
 
   /**
    * Run a marketplace action with proof-phase status reporting. The witness
@@ -310,6 +323,7 @@ export function useMarketplace() {
     busyAction,
     connect,
     disconnect,
+    reauthenticate,
     refresh,
     refreshBalance,
     listProduct,

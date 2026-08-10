@@ -3,6 +3,7 @@ import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-conf
 import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
+import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import {
   Binding,
   CostModel,
@@ -38,6 +39,28 @@ export interface BrowserProviders {
 }
 
 /**
+ * Official Midnight public data endpoints per network. These are the
+ * unauthenticated public indexer endhpoints for the Midnight network (see
+ * docs.midnight.network). Wallet extensions such as 1AM route their own
+ * traffic through an IAM-gated gateway, so the DApp must not adopt the
+ * extension's reported indexer/prover URIs as its own data plane.
+ */
+const OFFICIAL_INDEXERS: Record<string, { http: string; ws: string }> = {
+  undeployed: {
+    http: 'http://127.0.0.1:8088/api/v4/graphql',
+    ws: 'ws://127.0.0.1:8088/api/v4/graphql/ws',
+  },
+  preview: {
+    http: 'https://indexer.preview.midnight.network/api/v4/graphql',
+    ws: 'wss://indexer.preview.midnight.network/api/v4/graphql/ws',
+  },
+  preprod: {
+    http: 'https://indexer.preprod.midnight.network/api/v4/graphql',
+    ws: 'wss://indexer.preprod.midnight.network/api/v4/graphql/ws',
+  },
+};
+
+/**
  * Bridge the DApp Connector wallet (`ConnectedAPI`) to the provider interfaces
  * that midnight-js-contracts expects.
  *
@@ -51,14 +74,19 @@ export interface BrowserProviders {
  */
 export async function buildProviders(connectedApi: ConnectedAPI): Promise<BrowserProviders> {
   const config = await connectedApi.getConfiguration();
+  setNetworkId(config.networkId);
   const shielded = await connectedApi.getShieldedAddresses();
 
-  // Prefer the Preview endpoints declared by the frontend env over whatever
-  // the wallet extension reports, so the SDK always talks to the network the
-  // DApp is configured for. Falls back to the wallet's own configuration.
-  const indexerUri = import.meta.env.VITE_INDEXER_URL || config.indexerUri;
-  const indexerWsUri = import.meta.env.VITE_INDEXER_WS_URL || config.indexerWsUri;
-  const proofServerUri = import.meta.env.VITE_PROOF_SERVER_URL || config.proverServerUri;
+  // Resolve the indexer from, in order of precedence:
+  //   1. an explicit frontend override (VITE_*)
+  //   2. the official public Midnight indexer for the network the wallet is
+  //      connected to — the wallet extension's own gateway (e.g. 1AM's
+  //      api-preview.1am.xyz) is IAM-gated and returns 401 without a session
+  //   3. the wallet's reported configuration as a last resort
+  const officialIndexer = OFFICIAL_INDEXERS[config.networkId];
+  const indexerUri = import.meta.env.VITE_INDEXER_URL?.trim() || officialIndexer?.http || config.indexerUri;
+  const indexerWsUri =
+    import.meta.env.VITE_INDEXER_WS_URL?.trim() || officialIndexer?.ws || config.indexerWsUri;
 
   // ZK artifacts (zkir + keys) are served from /zkConfig — copied from
   // contracts/managed/handmade-marketplace by scripts/copy-zk.mjs.
@@ -67,11 +95,14 @@ export async function buildProviders(connectedApi: ConnectedAPI): Promise<Browse
     fetch.bind(window),
   );
 
-  // The wallet's own proof server (from getConfiguration) is preferred so the
-  // user's configured proving modality is honoured. If it is absent (older
-  // wallets), delegate proving back to the wallet extension instead.
-  const proofProvider = proofServerUri
-    ? httpClientProofProvider(proofServerUri, zkConfigProvider)
+  // Proving is delegated to the connected wallet via its `getProvingProvider`
+  // (connector v4 API); the wallet performs any required IAM/gateway proving
+  // itself. An HTTP proof server is only used when the developer explicitly
+  // configures one (VITE_PROOF_SERVER_URL) — never the wallet's reported
+  // proverServerUri, which may require credentials this DApp owns.
+  const proofServerUrl = import.meta.env.VITE_PROOF_SERVER_URL?.trim() || undefined;
+  const proofProvider = proofServerUrl
+    ? httpClientProofProvider(proofServerUrl, zkConfigProvider)
     : await dappConnectorProofProvider(connectedApi, zkConfigProvider, CostModel.initialCostModel());
 
   return {

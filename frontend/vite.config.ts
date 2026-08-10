@@ -21,6 +21,7 @@ export default defineConfig({
     alias: {
       assert: 'assert',
       events: 'events',
+      '@midnight-ntwrk/midnight-js-network-id': '@midnight-ntwrk/midnight-js-network-id',
     },
   },
   server: {
