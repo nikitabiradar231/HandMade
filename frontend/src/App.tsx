@@ -27,8 +27,7 @@ export default function App() {
     disconnect,
     reauthenticate,
     refresh,
-    listProduct,
-    mintNft,
+    listAndMintNft,
     verifyNft,
     purchase,
     withdrawProduct,
@@ -102,7 +101,7 @@ export default function App() {
               />
             )}
             {currentPage === 'create' && (
-              <CreatePage busyAction={busyAction} onList={listProduct} onMint={mintNft} />
+              <CreatePage busyAction={busyAction} onMintNft={listAndMintNft} />
             )}
             {currentPage === 'community' && (
               <CommunityPage products={products} nfts={nfts} onRefresh={refresh} />
