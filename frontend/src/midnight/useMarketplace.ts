@@ -36,12 +36,51 @@ export interface NftView {
   verified: boolean;
 }
 
-export type StatusKind = 'connecting' | 'proving' | 'success' | 'error';
+export type StatusKind =
+  | 'connecting'
+  | 'proving'
+  | 'submitting'
+  | 'submitted_waiting_for_index'
+  | 'success'
+  | 'error';
 
 export interface Status {
   kind: StatusKind;
   title: string;
   detail?: string;
+}
+
+export interface PendingTxRecord {
+  productId: string;
+  txHash: string;
+  title: string;
+  category: string;
+  price: string;
+  certificate: string;
+  submittedAt: number;
+  stage: 'list_submitted' | 'mint_submitted';
+}
+
+const PENDING_TX_KEY = 'handmade_pending_transactions';
+
+function loadPendingTxs(): PendingTxRecord[] {
+  try {
+    const raw = localStorage.getItem(PENDING_TX_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePendingTx(record: PendingTxRecord) {
+  const records = loadPendingTxs().filter((r) => r.productId !== record.productId);
+  records.push(record);
+  localStorage.setItem(PENDING_TX_KEY, JSON.stringify(records));
+}
+
+function removePendingTx(productId: string) {
+  const records = loadPendingTxs().filter((r) => r.productId !== productId);
+  localStorage.setItem(PENDING_TX_KEY, JSON.stringify(records));
 }
 
 export const PRODUCT_STATUS_LABELS = ['Listed', 'Sold', 'Withdrawn'] as const;
@@ -490,13 +529,35 @@ export function useMarketplace() {
           seller,
         );
         const productId = tx1.private.result;
-        console.log(`[6b] Product #${productId} listing transaction submitted (tx: ${tx1.public.txId})! Waiting for Midnight block confirmation & ledger indexing...`);
+        const txHash1 = tx1.public.txId;
+        console.log(`[6b] Product #${productId} listing transaction submitted (tx: ${txHash1})!`);
 
-        // Wait up to 60 seconds (30 x 2s) for product listing to be indexed on-chain
+        const certText = certificate.trim() || `${title.trim()} (${category.trim()})`;
+
+        // Save pending transaction record
+        savePendingTx({
+          productId: productId.toString(),
+          txHash: txHash1,
+          title: title.trim(),
+          category: category.trim(),
+          price: priceRaw.trim(),
+          certificate: certText,
+          submittedAt: Date.now(),
+          stage: 'list_submitted',
+        });
+
+        // Set status to submitted_waiting_for_index (NOT AN ERROR)
+        setStatus({
+          kind: 'submitted_waiting_for_index',
+          title: `Listing Transaction Submitted! (TX ${txHash1.slice(0, 16)}…)`,
+          detail: `Product #${productId} listing submitted to Midnight network. Waiting for block confirmation & ledger indexing before minting authenticity NFT…`,
+        });
+
+        // Wait for product listing to be indexed into contract's public products map on-chain
         let isIndexed = false;
         let retries = 0;
         while (!isIndexed && retries < 30) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          await new Promise((resolve) => setTimeout(resolve, 3000));
           await refresh();
           try {
             const contractState = await providersRef.current?.publicDataProvider.queryContractState(CONTRACT_ADDRESS);
@@ -508,20 +569,30 @@ export function useMarketplace() {
             console.warn('[MintNFT] Polling contract indexer state...', e);
           }
           retries++;
+
+          if (!isIndexed) {
+            setStatus({
+              kind: 'submitted_waiting_for_index',
+              title: `Listing Submitted (TX ${txHash1.slice(0, 16)}…)`,
+              detail: `Product #${productId} listing transaction broadcast to Midnight testnet. Waiting for block confirmation (${retries * 3}s elapsed)…`,
+            });
+          }
         }
 
         if (!isIndexed) {
-          throw new Error(
-            `Product #${productId} listing was submitted (tx ${tx1.public.txId.slice(0, 12)}…), but has not yet been indexed into the Midnight ledger block state. Please wait a few seconds and refresh.`,
-          );
+          return `Listing transaction (TX ${txHash1.slice(0, 16)}…) for Product #${productId} has been submitted to Midnight blockchain. Block confirmation is taking longer than usual — please refresh in a few moments to view your item.`;
         }
 
         console.log(`[6c] Product #${productId} confirmed on-chain in Midnight ledger! Proceeding to mint authenticity NFT...`);
+        setStatus({
+          kind: 'proving',
+          title: `Step 2/2: Proving & Minting Authenticity NFT for Product #${productId}…`,
+          detail: 'Generating zero-knowledge proof for authenticity NFT. Please keep this tab open (30–60s).',
+        });
 
         const secret = randomSecret();
         witnessValuesRef.current.makerSecret = secret;
 
-        const certText = certificate.trim() || `${title.trim()} (${category.trim()})`;
         console.log('[6d] Step 2/2: Submitting mintAuthenticityNft transaction to Midnight ledger...');
         console.log('[Circuit: mintAuthenticityNft]', {
           circuit: 'mintAuthenticityNft',
@@ -550,9 +621,10 @@ export function useMarketplace() {
 
         const tokenId = tx2.private.result;
         saveSecret(tokenId, secret);
+        removePendingTx(productId.toString());
 
         console.log(`[15] Product #${productId} listed & Authenticity NFT #${tokenId} minted on Midnight ledger!`);
-        return `🎉 Success! Product #${productId} listed & Authenticity NFT #${tokenId} minted on Midnight blockchain!`;
+        return `🎉 Success! Product #${productId} listed & Authenticity NFT #${tokenId} minted on Midnight blockchain! (TX ${tx2.public.txId.slice(0, 16)}…)`;
       }),
     [runAction, ensureActiveWallet, networkId, refresh],
   );
