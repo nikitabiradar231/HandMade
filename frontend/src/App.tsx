@@ -85,6 +85,7 @@ export default function App() {
                 networkId={networkId}
                 balance={balance}
                 busyAction={busyAction}
+                onRefresh={refresh}
                 onWithdraw={withdrawProduct}
                 onVerify={verifyNft}
                 onNavigate={(page) => setCurrentPage(page)}

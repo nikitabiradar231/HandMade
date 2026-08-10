@@ -3,6 +3,7 @@ import { toHex } from '@midnight-ntwrk/midnight-js-utils';
 import {
   CheckCircle2,
   ImagePlus,
+  RefreshCw,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
@@ -21,6 +22,7 @@ interface DashboardPageProps {
   networkId: string;
   balance: { tNight: bigint; dust: bigint } | null;
   busyAction: string | null;
+  onRefresh?: () => void;
   onWithdraw: (productId: string) => void;
   onVerify: (tokenIdRaw: string, secretHex?: string) => void;
   onNavigate: (page: 'create') => void;
@@ -33,6 +35,7 @@ export function DashboardPage({
   networkId,
   balance,
   busyAction,
+  onRefresh,
   onWithdraw,
   onVerify,
   onNavigate,
@@ -57,6 +60,17 @@ export function DashboardPage({
           <h1 className="text-2xl font-bold text-gray-800">Welcome back!</h1>
           <p className="text-gray-600">Your HandMadeHub dashboard on Midnight</p>
         </div>
+        {onRefresh && (
+          <button
+            onClick={onRefresh}
+            disabled={busy}
+            className="p-2 bg-purple-100 rounded-lg hover:bg-purple-200 transition-colors disabled:opacity-50 flex items-center gap-1.5 text-xs font-semibold text-purple-700"
+            title="Refresh dashboard state from Midnight ledger"
+          >
+            <RefreshCw size={16} className={busy ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">

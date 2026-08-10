@@ -13,9 +13,14 @@ export function addressToSellerBytes(address: string, networkId: string): Uint8A
 }
 
 export function sameSeller(seller: Uint8Array, address: string, networkId: string): boolean {
-  const mine = addressToSellerBytes(address, networkId);
-  if (mine.length !== seller.length) return false;
-  return mine.every((byte, i) => byte === seller[i]);
+  if (!address || !address.trim()) return false;
+  try {
+    const mine = addressToSellerBytes(address, networkId);
+    if (mine.length !== seller.length) return false;
+    return mine.every((byte, i) => byte === seller[i]);
+  } catch {
+    return false;
+  }
 }
 
 export function sellerHexShort(seller: Uint8Array): string {

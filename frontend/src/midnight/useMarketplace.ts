@@ -16,6 +16,7 @@ import {
   type WitnessValues,
 } from './contract';
 import { loadSecret, parseSecretHex, randomSecret, saveSecret } from './secrets';
+import { getDraftImage, saveProductImage, saveNftImage } from '../utils/productImage';
 
 export interface ProductView {
   id: bigint;
@@ -375,10 +376,19 @@ export function useMarketplace() {
           price,
           seller,
         );
+        const productId = tx.private.result;
+        const draftImg = getDraftImage();
+        if (draftImg) {
+          saveProductImage(productId, draftImg);
+        }
+
+        await refresh();
+        await refreshBalance();
+
         console.log('[15] Product successfully listed on Midnight ledger!', tx);
-        return `Product #${tx.private.result} listed at ${price.toLocaleString()} tNIGHT.`;
+        return `Product #${productId} listed at ${price.toLocaleString()} tNIGHT.`;
       }),
-    [runAction, ensureActiveWallet, networkId],
+    [runAction, ensureActiveWallet, networkId, refresh, refreshBalance],
   );
 
   const mintNft = useCallback(
@@ -421,10 +431,20 @@ export function useMarketplace() {
         const tx = await deployed.callTx.mintAuthenticityNft(productId, certificate.trim());
         const tokenId = tx.private.result;
         saveSecret(tokenId, secret);
+
+        const draftImg = getDraftImage();
+        if (draftImg) {
+          saveProductImage(productId, draftImg);
+          saveNftImage(tokenId, draftImg);
+        }
+
+        await refresh();
+        await refreshBalance();
+
         console.log('[15] Authenticity NFT successfully minted on Midnight ledger! Token ID:', tokenId);
         return `Authenticity NFT #${tokenId} minted for product #${productId}. The secret is stored only in this browser.`;
       }),
-    [runAction, ensureActiveWallet, networkId, products],
+    [runAction, ensureActiveWallet, networkId, products, refresh, refreshBalance],
   );
 
   const verifyNft = useCallback(
@@ -623,10 +643,19 @@ export function useMarketplace() {
         saveSecret(tokenId, secret);
         removePendingTx(productId.toString());
 
+        const draftImg = getDraftImage();
+        if (draftImg) {
+          saveProductImage(productId, draftImg);
+          saveNftImage(tokenId, draftImg);
+        }
+
+        await refresh();
+        await refreshBalance();
+
         console.log(`[15] Product #${productId} listed & Authenticity NFT #${tokenId} minted on Midnight ledger!`);
         return `🎉 Success! Product #${productId} listed & Authenticity NFT #${tokenId} minted on Midnight blockchain! (TX ${tx2.public.txId.slice(0, 16)}…)`;
       }),
-    [runAction, ensureActiveWallet, networkId, refresh],
+    [runAction, ensureActiveWallet, networkId, refresh, refreshBalance],
   );
 
   return {
