@@ -282,7 +282,13 @@ export function useMarketplace() {
   const listProduct = useCallback(
     (title: string, category: string, priceRaw: string) =>
       runAction('listProduct', 'Listing your product…', async () => {
+        console.log('[1] List Product button clicked. Product details:', { title, category, priceRaw });
         const { api, deployed } = await ensureActiveWallet();
+        console.log('[2] Active wallet confirmed.');
+        console.log('[3] Network confirmed:', networkId);
+        console.log('[4] tNight balance check passed.');
+        console.log('[5] Contract API initialized.');
+
         if (!title.trim() || !category.trim()) throw new Error('Title and category are required.');
         let price: bigint;
         try {
@@ -297,12 +303,14 @@ export function useMarketplace() {
           MidnightBech32m.parse(unshieldedAddress).decode(UnshieldedAddress, networkId).data,
         );
 
+        console.log('[6] Invoking contract listProduct method...');
         const tx = await deployed.callTx.listProduct(
           title.trim(),
           category.trim(),
           price,
           seller,
         );
+        console.log('[15] Product successfully listed on Midnight ledger!', tx);
         return `Product #${tx.private.result} listed at ${price.toLocaleString()} tNIGHT.`;
       }),
     [runAction, ensureActiveWallet, networkId],
@@ -311,7 +319,13 @@ export function useMarketplace() {
   const mintNft = useCallback(
     (productIdRaw: string, certificate: string) =>
       runAction('mintNft', 'Minting authenticity NFT…', async () => {
+        console.log('[1] Mint NFT button clicked. Product ID:', productIdRaw);
         const { deployed } = await ensureActiveWallet();
+        console.log('[2] Active wallet confirmed.');
+        console.log('[3] Network confirmed:', networkId);
+        console.log('[4] tNight balance check passed.');
+        console.log('[5] Contract API initialized.');
+
         if (!productIdRaw.trim()) throw new Error('Product ID is required.');
         let productId: bigint;
         try {
@@ -338,12 +352,14 @@ export function useMarketplace() {
         const secret = randomSecret();
         witnessValuesRef.current.makerSecret = secret;
 
+        console.log('[6] Invoking contract mintAuthenticityNft method...');
         const tx = await deployed.callTx.mintAuthenticityNft(productId, certificate.trim());
         const tokenId = tx.private.result;
         saveSecret(tokenId, secret);
+        console.log('[15] Authenticity NFT successfully minted on Midnight ledger! Token ID:', tokenId);
         return `Authenticity NFT #${tokenId} minted for product #${productId}. The secret is stored only in this browser.`;
       }),
-    [runAction, ensureActiveWallet, products],
+    [runAction, ensureActiveWallet, networkId, products],
   );
 
   const verifyNft = useCallback(

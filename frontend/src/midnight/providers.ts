@@ -108,16 +108,34 @@ export async function buildProviders(
   // used, wrap it with a fallback to the local proof server in case 1AM gateway
   // authentication is unavailable.
   const proofServerUrl = import.meta.env.VITE_PROOF_SERVER_URL?.trim() || 'http://127.0.0.1:6300';
-  let proofProvider;
+  let rawProofProvider;
   try {
     if (import.meta.env.VITE_PROOF_SERVER_URL?.trim()) {
-      proofProvider = httpClientProofProvider(proofServerUrl, zkConfigProvider);
+      rawProofProvider = httpClientProofProvider(proofServerUrl, zkConfigProvider);
     } else {
-      proofProvider = await dappConnectorProofProvider(connectedApi, zkConfigProvider, CostModel.initialCostModel());
+      rawProofProvider = await dappConnectorProofProvider(connectedApi, zkConfigProvider, CostModel.initialCostModel());
     }
   } catch {
-    proofProvider = httpClientProofProvider('http://127.0.0.1:6300', zkConfigProvider);
+    rawProofProvider = httpClientProofProvider('http://127.0.0.1:6300', zkConfigProvider);
   }
+
+  const proofProvider = {
+    ...rawProofProvider,
+    async proveTx(unprovenTx: any) {
+      console.log('[7] Starting ZK proof generation via proof server at:', proofServerUrl);
+      console.time('[ZK Proving Time]');
+      try {
+        const result = await rawProofProvider.proveTx(unprovenTx);
+        console.timeEnd('[ZK Proving Time]');
+        console.log('[8] ZK proof completed successfully!');
+        return result;
+      } catch (err) {
+        console.timeEnd('[ZK Proving Time]');
+        console.error('[7 -> 8 ERROR] ZK proof generation failed:', err);
+        throw err;
+      }
+    },
+  };
 
   return {
     privateStateProvider: levelPrivateStateProvider({
@@ -133,12 +151,15 @@ export async function buildProviders(
       getCoinPublicKey: () => shielded.shieldedCoinPublicKey,
       getEncryptionPublicKey: () => shielded.shieldedEncryptionPublicKey,
       async balanceTx(tx: UnboundTransaction): Promise<FinalizedTransaction> {
+        console.log('[6] Creating & balancing scoped transaction in wallet...');
         const activeApi = getApi();
         const serialized = toHex(tx.serialize());
         let balanced;
         try {
           balanced = await activeApi.balanceUnsealedTransaction(serialized);
+          console.log('[6] Scoped transaction successfully balanced by wallet.');
         } catch (err: any) {
+          console.error('[6 ERROR] balanceUnsealedTransaction failed:', err);
           const msg = err?.message || String(err);
           if (msg.includes('Wallet UI disconnected') || msg.includes('disconnected')) {
             throw new Error(
@@ -157,10 +178,15 @@ export async function buildProviders(
     },
     midnightProvider: {
       async submitTx(tx: FinalizedTransaction): Promise<TransactionId> {
+        console.log('[9] Preparing wallet transaction submission...');
+        console.log('[10] Wallet submission requested...');
         const activeApi = getApi();
         try {
           await activeApi.submitTransaction(toHex(tx.serialize()));
+          console.log('[11] Wallet authorization/submission accepted by extension!');
+          console.log('[12] Transaction submitted to Midnight network.');
         } catch (err: any) {
+          console.error('[10 -> 12 ERROR] submitTransaction failed:', err);
           const msg = err?.message || String(err);
           if (msg.includes('Wallet UI disconnected') || msg.includes('disconnected')) {
             throw new Error(
@@ -169,7 +195,10 @@ export async function buildProviders(
           }
           throw err;
         }
-        return tx.identifiers()[0];
+        const txId = tx.identifiers()[0];
+        console.log('[13] Transaction ID:', txId);
+        console.log('[14] Waiting for block confirmation...');
+        return txId;
       },
     },
   };
