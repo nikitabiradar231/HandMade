@@ -453,10 +453,11 @@ export function useMarketplace() {
       runAction('mintNft', 'Minting authenticity NFT & listing product…', async () => {
         console.log('[1] Mint NFT button clicked. Product details:', { title, category, priceRaw, certificate });
         const { api, deployed } = await ensureActiveWallet();
-        console.log('[2] Active wallet confirmed.');
+        const { unshieldedAddress } = await api.getUnshieldedAddress();
+        console.log('[2] Active wallet confirmed:', unshieldedAddress);
         console.log('[3] Network confirmed:', networkId);
         console.log('[4] tNight balance check passed.');
-        console.log('[5] Contract API initialized.');
+        console.log('[5] Contract API initialized at address:', CONTRACT_ADDRESS);
 
         if (!title.trim() || !category.trim()) throw new Error('Title and category are required.');
         let price: bigint;
@@ -467,12 +468,21 @@ export function useMarketplace() {
         }
         if (price <= 0n) throw new Error('Price must be a positive integer (tNIGHT).');
 
-        const { unshieldedAddress } = await api.getUnshieldedAddress();
         const seller = new Uint8Array(
           MidnightBech32m.parse(unshieldedAddress).decode(UnshieldedAddress, networkId).data,
         );
 
-        console.log('[6] Step 1/2: Invoking contract listProduct method on Midnight ledger...');
+        console.log('[6] Step 1/2: Submitting listProduct transaction to Midnight ledger...');
+        console.log('[Circuit: listProduct]', {
+          circuit: 'listProduct',
+          title: title.trim(),
+          category: category.trim(),
+          price,
+          contractAddress: CONTRACT_ADDRESS,
+          networkId,
+          walletAddress: unshieldedAddress,
+        });
+
         const tx1 = await deployed.callTx.listProduct(
           title.trim(),
           category.trim(),
@@ -480,21 +490,65 @@ export function useMarketplace() {
           seller,
         );
         const productId = tx1.private.result;
-        console.log(`[6b] Product #${productId} successfully listed! Proceeding to mint NFT...`);
+        console.log(`[6b] Product #${productId} listing transaction submitted! Waiting for block indexing on-chain...`);
+
+        // Wait for the product listing to be indexed into the contract's public products map on-chain
+        let isIndexed = false;
+        let retries = 0;
+        while (!isIndexed && retries < 15) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          await refresh();
+          try {
+            const contractState = await providersRef.current?.publicDataProvider.queryContractState(CONTRACT_ADDRESS);
+            if (contractState && contractModuleRef.current) {
+              const ledger = readPublicLedger(contractModuleRef.current, contractState);
+              isIndexed = [...ledger.products].some(([id]: [bigint, any]) => id === productId);
+            }
+          } catch (e) {
+            console.warn('[MintNFT] Polling contract indexer state...', e);
+          }
+          retries++;
+        }
+
+        console.log(`[6c] Product #${productId} on-chain indexing status:`, isIndexed ? 'INDEXED ON-CHAIN' : 'PENDING BLOCK CONFIRMATION');
 
         const secret = randomSecret();
         witnessValuesRef.current.makerSecret = secret;
 
         const certText = certificate.trim() || `${title.trim()} (${category.trim()})`;
-        console.log('[6c] Step 2/2: Invoking contract mintAuthenticityNft method on Midnight ledger...');
-        const tx2 = await deployed.callTx.mintAuthenticityNft(productId, certText);
+        console.log('[6d] Step 2/2: Submitting mintAuthenticityNft transaction to Midnight ledger...');
+        console.log('[Circuit: mintAuthenticityNft]', {
+          circuit: 'mintAuthenticityNft',
+          productId,
+          certificate: certText,
+          contractAddress: CONTRACT_ADDRESS,
+          networkId,
+          walletAddress: unshieldedAddress,
+        });
+
+        let tx2;
+        try {
+          tx2 = await deployed.callTx.mintAuthenticityNft(productId, certText);
+        } catch (err: any) {
+          console.error('[Circuit: mintAuthenticityNft FAILED]', {
+            circuit: 'mintAuthenticityNft',
+            productId,
+            certificate: certText,
+            contractAddress: CONTRACT_ADDRESS,
+            networkId,
+            walletAddress: unshieldedAddress,
+            error: err?.message || String(err),
+          });
+          throw err;
+        }
+
         const tokenId = tx2.private.result;
         saveSecret(tokenId, secret);
 
         console.log(`[15] Product #${productId} listed & Authenticity NFT #${tokenId} minted on Midnight ledger!`);
         return `🎉 Success! Product #${productId} listed & Authenticity NFT #${tokenId} minted on Midnight blockchain!`;
       }),
-    [runAction, ensureActiveWallet, networkId],
+    [runAction, ensureActiveWallet, networkId, refresh],
   );
 
   return {
