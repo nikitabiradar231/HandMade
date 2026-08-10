@@ -126,7 +126,18 @@ export async function buildProviders(connectedApi: ConnectedAPI): Promise<Browse
       getEncryptionPublicKey: () => shielded.shieldedEncryptionPublicKey,
       async balanceTx(tx: UnboundTransaction): Promise<FinalizedTransaction> {
         const serialized = toHex(tx.serialize());
-        const balanced = await connectedApi.balanceUnsealedTransaction(serialized);
+        let balanced;
+        try {
+          balanced = await connectedApi.balanceUnsealedTransaction(serialized);
+        } catch (err: any) {
+          const msg = err?.message || String(err);
+          if (msg.includes('Wallet UI disconnected') || msg.includes('disconnected')) {
+            throw new Error(
+              'The Midnight wallet extension popup disconnected or was closed during authorization. Please keep your wallet extension open and approve the transaction prompt.',
+            );
+          }
+          throw err;
+        }
         return Transaction.deserialize<SignatureEnabled, Proof, Binding>(
           'signature',
           'proof',
@@ -137,7 +148,17 @@ export async function buildProviders(connectedApi: ConnectedAPI): Promise<Browse
     },
     midnightProvider: {
       async submitTx(tx: FinalizedTransaction): Promise<TransactionId> {
-        await connectedApi.submitTransaction(toHex(tx.serialize()));
+        try {
+          await connectedApi.submitTransaction(toHex(tx.serialize()));
+        } catch (err: any) {
+          const msg = err?.message || String(err);
+          if (msg.includes('Wallet UI disconnected') || msg.includes('disconnected')) {
+            throw new Error(
+              'The Midnight wallet extension popup disconnected or was closed during submission. Please approve the transaction in your wallet.',
+            );
+          }
+          throw err;
+        }
         return tx.identifiers()[0];
       },
     },

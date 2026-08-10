@@ -47,7 +47,14 @@ export interface Status {
 export const PRODUCT_STATUS_LABELS = ['Listed', 'Sold', 'Withdrawn'] as const;
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  const msg = error instanceof Error ? error.message : String(error);
+  if (msg.includes('Wallet UI disconnected') || msg.includes('disconnected')) {
+    return 'The Midnight wallet extension popup disconnected or closed during authorization. Please keep your wallet active and approve the transaction prompt.';
+  }
+  if (msg.includes('user rejected') || msg.includes('User rejected') || msg.includes('Declined')) {
+    return 'Transaction request was declined in your Midnight wallet.';
+  }
+  return msg;
 }
 
 export function useMarketplace() {
@@ -151,6 +158,61 @@ export function useMarketplace() {
     }
   }, [refresh, refreshBalance]);
 
+  const ensureActiveWallet = useCallback(async (): Promise<{
+    api: ConnectedAPI;
+    deployed: any;
+  }> => {
+    let api = wallet;
+    if (!api) {
+      api = await connectWallet(networkId);
+      setWallet(api);
+    }
+
+    try {
+      const status = await api.getConnectionStatus();
+      if (status.status !== 'connected') {
+        api = await connectWallet(networkId);
+        setWallet(api);
+      }
+    } catch {
+      api = await connectWallet(networkId);
+      setWallet(api);
+    }
+
+    if (!deployedRef.current || !providersRef.current) {
+      const providers = await buildProviders(api);
+      const contractModule = await loadContractModule();
+      const compiledContract = makeCompiledContract(contractModule, witnessValuesRef.current);
+      const deployed = await findDeployedContract(providers as any, {
+        compiledContract,
+        contractAddress: CONTRACT_ADDRESS,
+        privateStateId: PRIVATE_STATE_ID,
+        initialPrivateState: {},
+      });
+      deployedRef.current = deployed;
+      providersRef.current = providers;
+      contractModuleRef.current = contractModule;
+    }
+
+    // Verify user has sufficient tNIGHT balance for gas/transaction fees
+    try {
+      const unshielded = await api.getUnshieldedBalances();
+      const tNight = unshielded[unshieldedToken().raw] ?? 0n;
+      if (tNight === 0n) {
+        throw new Error(
+          'Your connected wallet has 0 tNIGHT balance. Please fund your address from the Midnight Preview faucet before submitting transactions.',
+        );
+      }
+    } catch (err: any) {
+      if (err?.message?.includes('0 tNIGHT balance') || err?.message?.includes('Insufficient')) {
+        throw err;
+      }
+      // non-fatal balance read check
+    }
+
+    return { api, deployed: deployedRef.current };
+  }, [wallet, networkId]);
+
   const disconnect = useCallback(() => {
     deployedRef.current = null;
     providersRef.current = null;
@@ -213,17 +275,22 @@ export function useMarketplace() {
   const listProduct = useCallback(
     (title: string, category: string, priceRaw: string) =>
       runAction('listProduct', 'Listing your product…', async () => {
-        if (!deployedRef.current || !wallet) throw new Error('Not connected.');
+        const { api, deployed } = await ensureActiveWallet();
         if (!title.trim() || !category.trim()) throw new Error('Title and category are required.');
-        const price = BigInt(priceRaw.trim());
+        let price: bigint;
+        try {
+          price = BigInt(priceRaw.trim());
+        } catch {
+          throw new Error('Price must be a valid integer.');
+        }
         if (price <= 0n) throw new Error('Price must be a positive integer (tNIGHT).');
 
-        const { unshieldedAddress } = await wallet.getUnshieldedAddress();
+        const { unshieldedAddress } = await api.getUnshieldedAddress();
         const seller = new Uint8Array(
           MidnightBech32m.parse(unshieldedAddress).decode(UnshieldedAddress, networkId).data,
         );
 
-        const tx = await deployedRef.current.callTx.listProduct(
+        const tx = await deployed.callTx.listProduct(
           title.trim(),
           category.trim(),
           price,
@@ -231,13 +298,13 @@ export function useMarketplace() {
         );
         return `Product #${tx.private.result} listed at ${price.toLocaleString()} tNIGHT.`;
       }),
-    [runAction, wallet, networkId],
+    [runAction, ensureActiveWallet, networkId],
   );
 
   const mintNft = useCallback(
     (productIdRaw: string, certificate: string) =>
       runAction('mintNft', 'Minting authenticity NFT…', async () => {
-        if (!deployedRef.current) throw new Error('Not connected to Midnight wallet.');
+        const { deployed } = await ensureActiveWallet();
         if (!productIdRaw.trim()) throw new Error('Product ID is required.');
         let productId: bigint;
         try {
@@ -264,18 +331,18 @@ export function useMarketplace() {
         const secret = randomSecret();
         witnessValuesRef.current.makerSecret = secret;
 
-        const tx = await deployedRef.current.callTx.mintAuthenticityNft(productId, certificate.trim());
+        const tx = await deployed.callTx.mintAuthenticityNft(productId, certificate.trim());
         const tokenId = tx.private.result;
         saveSecret(tokenId, secret);
         return `Authenticity NFT #${tokenId} minted for product #${productId}. The secret is stored only in this browser.`;
       }),
-    [runAction, products],
+    [runAction, ensureActiveWallet, products],
   );
 
   const verifyNft = useCallback(
     (tokenIdRaw: string, secretHex?: string) =>
       runAction('verifyNft', 'Verifying authenticity…', async () => {
-        if (!deployedRef.current) throw new Error('Not connected.');
+        const { deployed } = await ensureActiveWallet();
         const tokenId = BigInt(tokenIdRaw.trim());
         const secret =
           (secretHex && secretHex.trim() ? parseSecretHex(secretHex) : null) ??
@@ -287,20 +354,20 @@ export function useMarketplace() {
         }
         witnessValuesRef.current.candidateSecret = secret;
 
-        const tx = await deployedRef.current.callTx.verifyAuthenticity(tokenId);
+        const tx = await deployed.callTx.verifyAuthenticity(tokenId);
         const verified = Boolean(tx.private.result);
         if (!verified) {
           throw new Error('The supplied secret does not match this NFT — nothing was revealed on-chain.');
         }
         return `✅ Genuine — the secret matches NFT #${tokenId}. Only the boolean result was disclosed on-chain.`;
       }),
-    [runAction],
+    [runAction, ensureActiveWallet],
   );
 
   const purchase = useCallback(
     (product: ProductView, pastedSecret?: string) =>
       runAction('purchase', 'Buying this item…', async () => {
-        if (!deployedRef.current) throw new Error('Not connected.');
+        const { deployed } = await ensureActiveWallet();
         if (product.status !== 0) throw new Error('This product is not for sale.');
 
         if (product.nftTokenId.is_some) {
@@ -315,21 +382,21 @@ export function useMarketplace() {
           witnessValuesRef.current.buyerSecret = secret;
         }
 
-        await deployedRef.current.callTx.purchaseProduct(product.id, product.price);
+        await deployed.callTx.purchaseProduct(product.id, product.price);
         return `Purchased “${product.title}” for ${product.price.toLocaleString()} tNIGHT.`;
       }),
-    [runAction],
+    [runAction, ensureActiveWallet],
   );
 
   const withdrawProduct = useCallback(
     (productIdRaw: string) =>
       runAction('withdraw', 'Withdrawing your listing…', async () => {
-        if (!deployedRef.current) throw new Error('Not connected.');
+        const { deployed } = await ensureActiveWallet();
         const productId = BigInt(productIdRaw.trim());
-        const tx = await deployedRef.current.callTx.withdrawProduct(productId);
+        const tx = await deployed.callTx.withdrawProduct(productId);
         return `Listing #${productId} withdrawn (tx ${tx.public.txId.slice(0, 16)}…).`;
       }),
-    [runAction],
+    [runAction, ensureActiveWallet],
   );
 
   return {
