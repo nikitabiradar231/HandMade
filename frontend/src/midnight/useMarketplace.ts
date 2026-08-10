@@ -490,12 +490,12 @@ export function useMarketplace() {
           seller,
         );
         const productId = tx1.private.result;
-        console.log(`[6b] Product #${productId} listing transaction submitted! Waiting for block indexing on-chain...`);
+        console.log(`[6b] Product #${productId} listing transaction submitted (tx: ${tx1.public.txId})! Waiting for Midnight block confirmation & ledger indexing...`);
 
-        // Wait for the product listing to be indexed into the contract's public products map on-chain
+        // Wait up to 60 seconds (30 x 2s) for product listing to be indexed on-chain
         let isIndexed = false;
         let retries = 0;
-        while (!isIndexed && retries < 15) {
+        while (!isIndexed && retries < 30) {
           await new Promise((resolve) => setTimeout(resolve, 2000));
           await refresh();
           try {
@@ -510,7 +510,13 @@ export function useMarketplace() {
           retries++;
         }
 
-        console.log(`[6c] Product #${productId} on-chain indexing status:`, isIndexed ? 'INDEXED ON-CHAIN' : 'PENDING BLOCK CONFIRMATION');
+        if (!isIndexed) {
+          throw new Error(
+            `Product #${productId} listing was submitted (tx ${tx1.public.txId.slice(0, 12)}…), but has not yet been indexed into the Midnight ledger block state. Please wait a few seconds and refresh.`,
+          );
+        }
+
+        console.log(`[6c] Product #${productId} confirmed on-chain in Midnight ledger! Proceeding to mint authenticity NFT...`);
 
         const secret = randomSecret();
         witnessValuesRef.current.makerSecret = secret;
@@ -530,15 +536,15 @@ export function useMarketplace() {
         try {
           tx2 = await deployed.callTx.mintAuthenticityNft(productId, certText);
         } catch (err: any) {
-          console.error('[Circuit: mintAuthenticityNft FAILED]', {
-            circuit: 'mintAuthenticityNft',
-            productId,
-            certificate: certText,
-            contractAddress: CONTRACT_ADDRESS,
-            networkId,
-            walletAddress: unshieldedAddress,
-            error: err?.message || String(err),
-          });
+          console.error('=== FULL MINT CIRCUIT ERROR DIAGNOSTICS ===');
+          console.error('NAME:', err?.name);
+          console.error('MESSAGE:', err?.message);
+          console.error('STACK:', err?.stack);
+          console.error('CAUSE:', err?.cause);
+          console.error('DETAILS:', err?.details);
+          console.error('CODE:', err?.code);
+          console.error('REASON:', err?.reason);
+          console.error('FULL OBJECT:', err);
           throw err;
         }
 
