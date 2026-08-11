@@ -103,35 +103,64 @@ export async function buildProviders(
     fetch.bind(window),
   );
 
-  // Proving provider: use VITE_PROOF_SERVER_URL if configured, or default to the
-  // local proof server (http://127.0.0.1:6300). If dappConnectorProofProvider is
-  // used, wrap it with a fallback to the local proof server in case 1AM gateway
-  // authentication is unavailable.
+  // Proving provider selection: Attempt dappConnectorProofProvider first so wallet extension
+  // handles proof generation natively. If dappConnectorProofProvider is unavailable or fails,
+  // fall back to httpClientProofProvider using VITE_PROOF_SERVER_URL or http://127.0.0.1:6300.
   const proofServerUrl = import.meta.env.VITE_PROOF_SERVER_URL?.trim() || 'http://127.0.0.1:6300';
-  let rawProofProvider;
+  let rawProofProvider: any;
   try {
-    if (import.meta.env.VITE_PROOF_SERVER_URL?.trim()) {
+    rawProofProvider = await dappConnectorProofProvider(
+      connectedApi,
+      zkConfigProvider,
+      CostModel.initialCostModel(),
+    );
+    console.log('[Providers] Successfully initialized wallet DApp connector proof provider.');
+  } catch (dappErr) {
+    console.warn(
+      '[Providers] DApp connector proof provider unavailable, attempting HTTP proof server at:',
+      proofServerUrl,
+      dappErr,
+    );
+    try {
       rawProofProvider = httpClientProofProvider(proofServerUrl, zkConfigProvider);
-    } else {
-      rawProofProvider = await dappConnectorProofProvider(connectedApi, zkConfigProvider, CostModel.initialCostModel());
+      console.log('[Providers] Initialized HTTP client proof provider at:', proofServerUrl);
+    } catch (httpErr) {
+      console.error('[Providers] Failed to initialize HTTP client proof provider:', httpErr);
+      throw new Error(
+        `Unable to initialize Midnight Proof Provider. Please ensure your Midnight wallet is connected or start your local proof server container at ${proofServerUrl}.`,
+      );
     }
-  } catch {
-    rawProofProvider = httpClientProofProvider('http://127.0.0.1:6300', zkConfigProvider);
   }
+
+  const userAddress = (await connectedApi.getUnshieldedAddress()).unshieldedAddress;
 
   const proofProvider = {
     ...rawProofProvider,
     async proveTx(unprovenTx: any) {
-      console.log('[7] Starting ZK proof generation via proof server at:', proofServerUrl);
+      console.log('[Mint] Starting ZK proof generation...');
+      console.log('[Mint] Wallet:', userAddress);
+      console.log('[Mint] Network:', config.networkId);
+      console.log('[Mint] Proof server endpoint:', proofServerUrl);
       console.time('[ZK Proving Time]');
       try {
         const result = await rawProofProvider.proveTx(unprovenTx);
         console.timeEnd('[ZK Proving Time]');
-        console.log('[8] ZK proof completed successfully!');
+        console.log('[Mint] ZK proof generated successfully!');
         return result;
-      } catch (err) {
+      } catch (err: any) {
         console.timeEnd('[ZK Proving Time]');
-        console.error('[7 -> 8 ERROR] ZK proof generation failed:', err);
+        console.error('[Mint ERROR] ZK proof generation failed:', err);
+        const msg = err?.message || String(err);
+        if (
+          msg.includes('Failed to fetch') ||
+          msg.includes('fetch') ||
+          msg.includes('ECONNREFUSED') ||
+          msg.includes('connect ECONNREFUSED')
+        ) {
+          throw new Error(
+            `Midnight Proof Server unavailable (${proofServerUrl}). If running locally, please start your proof server Docker container with \`npm run proof-server:start\` (port 6300), or check your internet / wallet extension connection. (Original error: ${msg})`,
+          );
+        }
         throw err;
       }
     },

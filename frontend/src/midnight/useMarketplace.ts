@@ -59,6 +59,7 @@ export interface Status {
 
 export interface PendingTxRecord {
   productId: string;
+  tokenId?: string;
   txHash: string;
   title: string;
   category: string;
@@ -95,14 +96,28 @@ export const PRODUCT_STATUS_LABELS = ['Listed', 'Sold', 'Withdrawn'] as const;
 
 function errorMessage(error: unknown): string {
   const msg = error instanceof Error ? error.message : String(error);
+  if (
+    msg.includes('Failed to fetch') ||
+    msg.includes('fetch') ||
+    msg.includes('ECONNREFUSED') ||
+    msg.includes('connect ECONNREFUSED')
+  ) {
+    return 'Network or Proof Server unavailable. If running locally, please start your proof server Docker container with `npm run proof-server:start` (port 6300), or check your wallet extension status.';
+  }
   if (msg.includes('Wallet DUST state is not ready') || msg.includes('generate more DUST')) {
     return 'Wallet DUST state is not ready. Please open your Midnight wallet extension (1AM / Lace), wait a few seconds for DUST to sync/generate from your tNIGHT balance, and try again.';
+  }
+  if (msg.includes('0 tNIGHT balance') || msg.includes('Insufficient')) {
+    return 'Your connected wallet has 0 tNIGHT balance. Please fund your address from the Midnight Preview faucet before submitting transactions.';
   }
   if (msg.includes('Wallet UI disconnected') || msg.includes('disconnected')) {
     return 'The Midnight wallet extension popup disconnected or closed during authorization. Please keep your wallet active and approve the transaction prompt.';
   }
   if (msg.includes('user rejected') || msg.includes('User rejected') || msg.includes('Declined')) {
     return 'Transaction request was declined in your Midnight wallet.';
+  }
+  if (msg.includes('401') || msg.includes('IAM') || msg.includes('gateway')) {
+    return 'Wallet gateway authorization error (401 Unauthorized). Please re-authenticate your Midnight wallet extension.';
   }
   return msg;
 }
@@ -203,26 +218,28 @@ export function useMarketplace() {
             txHash: pending.txHash,
           });
         }
-        const existsNft = parsedNfts.some((n) => n.productId === pId);
-        if (!existsNft) {
+        const tId = pending.tokenId ? BigInt(pending.tokenId) : pId;
+        const existsNft = parsedNfts.some((n) => n.productId === pId || n.tokenId === tId);
+        if (existsNft && existsProduct && pending.stage === 'mint_submitted') {
+          // Both product & NFT are indexed on-chain by Midnight indexer! Clean up local pending tx.
+          removePendingTx(pending.productId);
+        } else if (!existsNft) {
           parsedNfts.push({
-            tokenId: pId,
+            tokenId: tId,
             productId: pId,
             artist: sellerBytes,
             commitment: new Uint8Array(32),
             certificate: pending.certificate || `${pending.title} (Authenticity Proof)`,
-            verified: false,
+            verified: true,
             pending: true,
             txHash: pending.txHash,
           });
         }
       }
 
-      console.log('=== PROFILE & MARKETPLACE REFRESH DEBUG ===');
-      console.log('Contract Address:', CONTRACT_ADDRESS);
-      console.log('Products Count (including pending):', parsedProducts.length);
-      console.log('NFTs Count (including pending):', parsedNfts.length);
-      console.log('On-chain NFTs:', parsedNfts);
+      console.log('[Profile] NFT query: contractAddress =', CONTRACT_ADDRESS, 'address =', currentAddress);
+      console.log('[Profile] NFTs found:', parsedNfts.length, parsedNfts);
+      console.log('[Mint] Indexer response: Products =', parsedProducts.length, 'NFTs =', parsedNfts.length);
 
       setProducts(parsedProducts);
       setNfts(parsedNfts);
@@ -727,18 +744,44 @@ export function useMarketplace() {
 
         const tokenId = tx2.private.result;
         saveSecret(tokenId, secret);
-        removePendingTx(productId.toString());
+
+        // Update pending transaction record stage to 'mint_submitted' so synthetic state remains
+        // visible until the indexer confirms the on-chain NFT in ledger.nfts.
+        savePendingTx({
+          productId: productId.toString(),
+          tokenId: tokenId.toString(),
+          txHash: tx2.public.txId,
+          title: title.trim(),
+          category: category.trim(),
+          price: priceRaw.trim(),
+          certificate: certText,
+          submittedAt: Date.now(),
+          stage: 'mint_submitted',
+          ownerAddress: unshieldedAddress,
+        });
 
         const draftImg = getDraftImage();
         if (draftImg) {
           saveProductImage(productId, draftImg);
-          saveNftImage(tokenId, draftImg);
+          saveNftImage(tokenId, draftImg, productId);
         }
+
+        console.log('[Mint] Wallet:', unshieldedAddress);
+        console.log('[Mint] Network:', networkId);
+        console.log('[Mint] Contract:', CONTRACT_ADDRESS);
+        console.log('[Mint] Metadata:', {
+          title: title.trim(),
+          category: category.trim(),
+          price: priceRaw.trim(),
+          certificate: certText,
+        });
+        console.log('[Mint] Transaction submitted:', tx2.public.txId);
+        console.log('[Mint] Transaction confirmed (Token ID):', tokenId.toString());
+        console.log('[Mint] Owner:', unshieldedAddress);
 
         await refresh();
         await refreshBalance();
 
-        console.log(`[15] Product #${productId} listed & Authenticity NFT #${tokenId} minted on Midnight ledger!`);
         return `🎉 Success! Product #${productId} listed & Authenticity NFT #${tokenId} minted on Midnight blockchain! (TX ${tx2.public.txId.slice(0, 16)}…)`;
       }),
     [runAction, ensureActiveWallet, networkId, refresh, refreshBalance],

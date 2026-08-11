@@ -23,17 +23,35 @@ export function getProductImage(productId: string | bigint | number): string | n
   }
 }
 
-export function saveNftImage(tokenId: string | bigint | number, dataUrl: string): void {
+export function saveNftImage(
+  tokenId: string | bigint | number,
+  dataUrl: string,
+  productId?: string | bigint | number,
+): void {
   try {
     localStorage.setItem(`${NFT_PREFIX}${tokenId.toString()}`, dataUrl);
+    if (productId !== undefined && productId !== null) {
+      localStorage.setItem(`${STORAGE_PREFIX}${productId.toString()}`, dataUrl);
+    }
   } catch (err) {
     console.warn('Could not save NFT image to localStorage:', err);
   }
 }
 
-export function getNftImage(tokenId: string | bigint | number): string | null {
+export function getNftImage(
+  tokenId: string | bigint | number,
+  productId?: string | bigint | number,
+): string | null {
   try {
-    return localStorage.getItem(`${NFT_PREFIX}${tokenId.toString()}`);
+    const direct = localStorage.getItem(`${NFT_PREFIX}${tokenId.toString()}`);
+    if (direct) return direct;
+
+    if (productId !== undefined && productId !== null) {
+      const prodImg = localStorage.getItem(`${STORAGE_PREFIX}${productId.toString()}`);
+      if (prodImg) return prodImg;
+    }
+
+    return localStorage.getItem(DRAFT_KEY);
   } catch {
     return null;
   }

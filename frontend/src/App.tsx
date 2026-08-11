@@ -102,7 +102,13 @@ export default function App() {
               />
             )}
             {currentPage === 'create' && (
-              <CreatePage busyAction={busyAction} onMintNft={listAndMintNft} />
+              <CreatePage
+                busyAction={busyAction}
+                onMintNft={async (title, category, price, cert) => {
+                  await listAndMintNft(title, category, price, cert);
+                  setCurrentPage('profile');
+                }}
+              />
             )}
             {currentPage === 'community' && (
               <CommunityPage products={products} nfts={nfts} onRefresh={refresh} />
@@ -130,7 +136,7 @@ export default function App() {
           visible={!!connected}
         />
 
-        <footer className="text-center text-xs text-gray-400 py-4 px-4">
+        <footer className="text-center text-xs text-gray-400 py-4 px-4 pb-20">
           HandMadeHub runs entirely on the Midnight blockchain — art meets zero-knowledge proofs.
         </footer>
       </div>
