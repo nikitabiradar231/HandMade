@@ -66,6 +66,7 @@ export interface PendingTxRecord {
   certificate: string;
   submittedAt: number;
   stage: 'list_submitted' | 'mint_submitted';
+  ownerAddress?: string;
 }
 
 const PENDING_TX_KEY = 'handmade_pending_transactions';
@@ -179,6 +180,9 @@ export function useMarketplace() {
       }
 
       for (const pending of pendingRecords) {
+        if (pending.ownerAddress && currentAddress && pending.ownerAddress !== currentAddress) {
+          continue;
+        }
         let pId: bigint;
         try {
           pId = BigInt(pending.productId);
@@ -638,6 +642,7 @@ export function useMarketplace() {
           certificate: certText,
           submittedAt: Date.now(),
           stage: 'list_submitted',
+          ownerAddress: unshieldedAddress,
         });
 
         // Set status to submitted_waiting_for_index (NOT AN ERROR)
