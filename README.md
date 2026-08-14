@@ -702,6 +702,8 @@ Contract Address:
 
 ```
 
+![Midnight Preview Deployment](preview_dep.png)
+
 ---
 
 # 🌟 Project Highlights
